@@ -4,22 +4,27 @@ const CORS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
-const AVATARS = {
-  lenai: "ef9a01a2-e90f-4ebb-8c15-63c4aa849066",
-  victor: "58920813-02a3-4a75-9b81-00ff577f74f0",
-  elena: "b6b87c95-6142-4ce3-8b11-b2ac9d25b975",
-  damian: "665f972b-6114-4d88-a958-e6e00448f3fd",
+const CHARACTERS = {
+  lenai: {
+    avatar_id: "ef9a01a2-e90f-4ebb-8c15-63c4aa849066",
+    voice_agent_id: "a18274af-db61-421c-977d-5dfeb725b8fe",
+  },
+  victor: {
+    avatar_id: "58920813-02a3-4a75-9b81-00ff577f74f0",
+    voice_agent_id: "24931786-3965-44ab-8cdb-7cf3bb7eeec9",
+  },
+  elena: {
+    avatar_id: "b6b87c95-6142-4ce3-8b11-b2ac9d25b975",
+    voice_agent_id: "75933fd3-6e78-4a52-9fd6-1c82f7541a12",
+  },
+  damian: {
+    avatar_id: "665f972b-6114-4d88-a958-e6e00448f3fd",
+    voice_agent_id: "ba7c264f-4dcd-4417-b95e-edc9c350ed90",
+  },
 };
 
 function liveKey(env) {
-  return (
-    env.LIVEAVATAR_API_KEY ||
-    env.LIVEAVATAR_KEY ||
-    env.LIVEAVATAR ||
-    env.API_KEY ||
-    env.MY_VARIABLE ||
-    ""
-  );
+  return env.LIVEAVATAR_API_KEY || env.LIVEAVATAR_KEY || env.LIVEAVATAR || env.API_KEY || env.MY_VARIABLE || "";
 }
 
 export default {
@@ -31,21 +36,17 @@ export default {
     const db = env.DB || env.shadow_realm;
 
     if (request.method === "GET") {
-      const names = Object.keys(env || {});
       return json({
         ok: true,
         service: "shadow-talk-api",
         hasDb: !!db,
         hasLiveKey: !!liveKey(env),
-        envNames: names,
-        characters: Object.keys(AVATARS),
+        envNames: Object.keys(env || {}),
+        characters: Object.keys(CHARACTERS),
       });
     }
 
-    if (request.method !== "POST") {
-      return json({ error: "POST JSON" }, 405);
-    }
-
+    if (request.method !== "POST") return json({ error: "POST JSON" }, 405);
     if (!db) return json({ error: "D1 binding missing" }, 500);
 
     let body = {};
@@ -88,8 +89,8 @@ export default {
       const key = liveKey(env);
       if (!key) return json({ error: "Add LIVEAVATAR_API_KEY secret on Production runtime" }, 500);
       if (!email || !character) return json({ error: "email and character required" }, 400);
-      const avatar_id = String(body.avatar_id || AVATARS[character] || "");
-      if (!avatar_id) return json({ error: "Unknown character. Use lenai, victor, elena, or damian." }, 400);
+      const who = CHARACTERS[character];
+      if (!who) return json({ error: "Unknown character. Use lenai, victor, elena, or damian." }, 400);
 
       const prev = await db.prepare(
         "SELECT session_id, memory_id FROM member_memory WHERE email = ? AND character = ?"
@@ -99,8 +100,9 @@ export default {
 
       const payload = {
         mode: "FULL",
-        avatar_id,
+        avatar_id: who.avatar_id,
         interactivity_type: "CONVERSATIONAL",
+        voice_agent: { id: who.voice_agent_id },
       };
       if (prev && (prev.memory_id || prev.session_id)) {
         payload.memory = {};
@@ -142,7 +144,7 @@ export default {
       return json({
         ok: true,
         character,
-        avatar_id,
+        avatar_id: who.avatar_id,
         liveavatar: data,
         saved_session_id: session_id,
         reused: !!(prev && (prev.memory_id || prev.session_id)),
