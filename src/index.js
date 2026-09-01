@@ -11,6 +11,17 @@ const AVATARS = {
   damian: "665f972b-6114-4d88-a958-e6e00448f3fd",
 };
 
+function liveKey(env) {
+  return (
+    env.LIVEAVATAR_API_KEY ||
+    env.LIVEAVATAR_KEY ||
+    env.LIVEAVATAR ||
+    env.API_KEY ||
+    env.MY_VARIABLE ||
+    ""
+  );
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -20,10 +31,13 @@ export default {
     const db = env.DB || env.shadow_realm;
 
     if (request.method === "GET") {
+      const names = Object.keys(env || {});
       return json({
         ok: true,
         service: "shadow-talk-api",
         hasDb: !!db,
+        hasLiveKey: !!liveKey(env),
+        envNames: names,
         characters: Object.keys(AVATARS),
       });
     }
@@ -57,8 +71,6 @@ export default {
 
     if (action === "remember-save") {
       if (!email || !character) return json({ error: "email and character required" }, 400);
-      const session_id = String(body.session_id || "");
-      const memory_id = String(body.memory_id || "");
       await db.prepare(
         `INSERT INTO member_memory (email, character, session_id, memory_id, updated)
          VALUES (?, ?, ?, ?, ?)
@@ -67,15 +79,14 @@ export default {
            memory_id = excluded.memory_id,
            updated = excluded.updated`
       )
-        .bind(email, character, session_id, memory_id, Date.now())
+        .bind(email, character, String(body.session_id || ""), String(body.memory_id || ""), Date.now())
         .run();
       return json({ ok: true });
     }
 
     if (action === "session-start") {
-      if (!env.LIVEAVATAR_API_KEY) {
-        return json({ error: "Add LIVEAVATAR_API_KEY secret" }, 500);
-      }
+      const key = liveKey(env);
+      if (!key) return json({ error: "Add LIVEAVATAR_API_KEY secret on Production runtime" }, 500);
       if (!email || !character) return json({ error: "email and character required" }, 400);
       const avatar_id = String(body.avatar_id || AVATARS[character] || "");
       if (!avatar_id) return json({ error: "Unknown character. Use lenai, victor, elena, or damian." }, 400);
@@ -94,14 +105,14 @@ export default {
       if (prev && (prev.memory_id || prev.session_id)) {
         payload.memory = {};
         if (prev.memory_id) payload.memory.session_memory_id = prev.memory_id;
-        else if (prev.session_id) payload.memory.prev_session_id = prev.session_id;
+        else payload.memory.prev_session_id = prev.session_id;
       }
 
       const la = await fetch("https://api.liveavatar.com/v1/sessions/token", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-API-KEY": env.LIVEAVATAR_API_KEY,
+          "X-API-KEY": key,
         },
         body: JSON.stringify(payload),
       });
