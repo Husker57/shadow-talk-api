@@ -1,0 +1,8 @@
+name = "shadow-talk-api"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "shadow_realm"
+database_name = "shadow_realm"
+database_id = "REPLACE_ME"
