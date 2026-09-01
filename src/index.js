@@ -39,7 +39,7 @@ export default {
       return json({
         ok: true,
         service: "shadow-talk-api",
-        hasDb: !!db,
+        hasDb: !!(db && typeof db.prepare === "function"),
         hasLiveKey: !!liveKey(env),
         envNames: Object.keys(env || {}),
         characters: Object.keys(CHARACTERS),
@@ -47,7 +47,6 @@ export default {
     }
 
     if (request.method !== "POST") return json({ error: "POST JSON" }, 405);
-    if (!db) return json({ error: "D1 binding missing" }, 500);
 
     let body = {};
     try {
@@ -59,10 +58,15 @@ export default {
     const action = String(body.action || "");
     const email = String(body.email || "").trim().toLowerCase();
     const character = String(body.character || "").trim().toLowerCase();
+    const readyDb = db && typeof db.prepare === "function" ? db : null;
+
+    if (action === "remember-get" || action === "remember-save") {
+      if (!readyDb) return json({ error: "D1 binding missing", envNames: Object.keys(env || {}) }, 500);
+    }
 
     if (action === "remember-get") {
       if (!email || !character) return json({ error: "email and character required" }, 400);
-      const row = await db.prepare(
+      const row = await readyDb.prepare(
         "SELECT session_id, memory_id, updated FROM member_memory WHERE email = ? AND character = ?"
       )
         .bind(email, character)
@@ -72,7 +76,7 @@ export default {
 
     if (action === "remember-save") {
       if (!email || !character) return json({ error: "email and character required" }, 400);
-      await db.prepare(
+      await readyDb.prepare(
         `INSERT INTO member_memory (email, character, session_id, memory_id, updated)
          VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(email, character) DO UPDATE SET
@@ -92,11 +96,14 @@ export default {
       const who = CHARACTERS[character];
       if (!who) return json({ error: "Unknown character. Use lenai, victor, elena, or damian." }, 400);
 
-      const prev = await db.prepare(
-        "SELECT session_id, memory_id FROM member_memory WHERE email = ? AND character = ?"
-      )
-        .bind(email, character)
-        .first();
+      let prev = null;
+      if (readyDb) {
+        prev = await readyDb.prepare(
+          "SELECT session_id, memory_id FROM member_memory WHERE email = ? AND character = ?"
+        )
+          .bind(email, character)
+          .first();
+      }
 
       const payload = {
         mode: "FULL",
@@ -128,8 +135,8 @@ export default {
         data?.session_memory_id ||
         prev?.memory_id ||
         "";
-      if (session_id) {
-        await db.prepare(
+      if (readyDb && session_id) {
+        await readyDb.prepare(
           `INSERT INTO member_memory (email, character, session_id, memory_id, updated)
            VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(email, character) DO UPDATE SET
@@ -148,6 +155,7 @@ export default {
         liveavatar: data,
         saved_session_id: session_id,
         reused: !!(prev && (prev.memory_id || prev.session_id)),
+        memorySaved: !!(readyDb && session_id),
       });
     }
 
