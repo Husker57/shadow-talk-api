@@ -4,20 +4,18 @@ const CORS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
-const SHARED_VOICE_AGENT = "1ddd1794-15f4-45de-ba78-13e328a6e554";
-
 const CHARACTERS = {
   lenai: {
     avatar_id: "a18274af-db61-421c-977d-5dfeb725b8fe",
-    voice_agent_id: SHARED_VOICE_AGENT,
+    voice_agent_id: "7ca88c75-e4d8-498b-941c-43de04abafb3",
   },
   victor: {
     avatar_id: "24931786-3965-44ab-8cdb-7cf3bb7eeec9",
-    voice_agent_id: SHARED_VOICE_AGENT,
+    voice_agent_id: "111dcdcc-a2ae-49ca-9a98-0e8633a2e6e2",
   },
   elena: {
     avatar_id: "75933fd3-6e78-4a52-9fd6-1c82f7541a12",
-    voice_agent_id: SHARED_VOICE_AGENT,
+    voice_agent_id: "efe5b6a8-39b3-4ab3-a0e9-dfc98aa0b46d",
   },
   damian: {
     avatar_id: "ba7c264f-4dcd-4417-b95e-edc9c350ed90",
@@ -121,7 +119,15 @@ export default {
              session_id = excluded.session_id, memory_id = excluded.memory_id, updated = excluded.updated`
         ).bind(email, character, session_id, memory_id, Date.now()).run();
       }
-      return json({ ok: true, character, avatar_id: who.avatar_id, voice_agent_id: who.voice_agent_id, liveavatar: data, saved_session_id: session_id, memorySaved: !!(readyDb && session_id) });
+      return json({
+        ok: true,
+        character,
+        avatar_id: who.avatar_id,
+        voice_agent_id: who.voice_agent_id,
+        liveavatar: data,
+        saved_session_id: session_id,
+        memorySaved: !!(readyDb && session_id),
+      });
     }
     return json({ error: "Unknown action" }, 400);
   },
