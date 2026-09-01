@@ -59,6 +59,16 @@ export default {
     const email = String(body.email || "").trim().toLowerCase();
     const character = String(body.character || "").trim().toLowerCase();
     const readyDb = db && typeof db.prepare === "function" ? db : null;
+    const key = liveKey(env);
+
+    if (action === "list-agents") {
+      if (!key) return json({ error: "LiveAvatar key missing" }, 500);
+      const la = await fetch("https://api.liveavatar.com/v1/voice_agents", {
+        headers: { "X-API-KEY": key },
+      });
+      const data = await la.json().catch(() => ({}));
+      return json({ ok: la.ok, liveavatar: data }, la.ok ? 200 : 502);
+    }
 
     if (action === "remember-get" || action === "remember-save") {
       if (!readyDb) return json({ error: "D1 binding missing", envNames: Object.keys(env || {}) }, 500);
@@ -90,7 +100,6 @@ export default {
     }
 
     if (action === "session-start") {
-      const key = liveKey(env);
       if (!key) return json({ error: "Add LIVEAVATAR_API_KEY secret on Production runtime" }, 500);
       if (!email || !character) return json({ error: "email and character required" }, 400);
       const who = CHARACTERS[character];
