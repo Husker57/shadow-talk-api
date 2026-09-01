@@ -3,52 +3,47 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Shadow Realm Desk</title>
+  <title>Desk · Shadow Realm</title>
   <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
   <style>
-    :root { --bg:#121212; --panel:#1c1c1c; --gold:#c9a227; --text:#f3f3f3; --muted:#9a9a9a; }
-    * { box-sizing: border-box; }
-    body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); }
-    header { padding:16px 20px; border-bottom:1px solid #2a2a2a; display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
-    h1 { margin:0; font-size:1.1rem; letter-spacing:.04em; }
-    main { max-width:1100px; margin:0 auto; padding:16px; display:grid; gap:16px; }
-    .row { display:flex; gap:8px; flex-wrap:wrap; }
-    button, input, select { font: inherit; }
-    button { background:var(--gold); color:#111; border:0; padding:10px 14px; border-radius:8px; cursor:pointer; font-weight:700; }
-    button.ghost { background:#2a2a2a; color:var(--text); }
-    input, select { background:#111; color:var(--text); border:1px solid #333; padding:10px 12px; border-radius:8px; min-width:220px; }
-    .who { display:flex; gap:8px; flex-wrap:wrap; }
-    .who button[aria-pressed="true"] { outline:2px solid var(--gold); }
-    .stage { background:#000; border-radius:16px; min-height:360px; overflow:hidden; position:relative; }
-    video { width:100%; height:100%; min-height:360px; object-fit:cover; background:#000; }
-    .status { color:var(--muted); font-size:.95rem; min-height:1.4em; }
-    .note { color:var(--muted); font-size:.85rem; }
+    body { margin:0; font-family:system-ui,sans-serif; background:#121212; color:#f3f3f3; }
+    header, main { max-width:1100px; margin:0 auto; padding:16px; }
+    a { color:#c9a227; }
+    .row, .who { display:flex; gap:8px; flex-wrap:wrap; }
+    button, input { font:inherit; }
+    button { background:#c9a227; color:#111; border:0; padding:10px 14px; border-radius:8px; cursor:pointer; font-weight:700; }
+    button.ghost { background:#2a2a2a; color:#fff; }
+    input { background:#111; color:#fff; border:1px solid #333; padding:10px 12px; border-radius:8px; }
+    .who button[aria-pressed="true"] { outline:2px solid #c9a227; }
+    video { width:100%; min-height:360px; background:#000; border-radius:16px; object-fit:cover; }
+    .status, .note { color:#9a9a9a; }
   </style>
 </head>
 <body>
   <header>
-    <h1>SHADOW REALM DESK</h1>
-    <span class="note">Entertainment only. Not financial advice.</span>
+    <p><a href="index.html">Home</a> · <a href="account.html">Account</a></p>
+    <h1>The Desk</h1>
+    <p class="note" id="whoami">Checking account…</p>
   </header>
   <main>
     <div class="who" id="who">
-      <button type="button" data-who="lenai" aria-pressed="false">Lenai</button>
-      <button type="button" data-who="victor" aria-pressed="false">Victor</button>
-      <button type="button" data-who="elena" aria-pressed="false">Elena</button>
+      <button type="button" data-who="lenai">Lenai</button>
+      <button type="button" data-who="victor">Victor</button>
+      <button type="button" data-who="elena">Elena</button>
       <button type="button" data-who="damian" aria-pressed="true">Damian</button>
     </div>
     <div class="row">
-      <input id="email" type="email" placeholder="Member email" value="test@realm-studios.ai" />
       <button id="start" type="button">Start video</button>
       <button id="stop" class="ghost" type="button">Stop</button>
     </div>
-    <p class="status" id="status">Pick a character, then Start video.</p>
-    <div class="stage"><video id="avatar" autoplay playsinline></video></div>
+    <p class="status" id="status">Log in first if this page asks you to.</p>
+    <video id="avatar" autoplay playsinline></video>
   </main>
 <script>
 const API = "https://shadow-talk-api.spring-fog-46d4.workers.dev";
 let character = "damian";
 let room;
+let email = localStorage.getItem("shadow_email") || "";
 
 document.getElementById("who").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-who]");
@@ -57,10 +52,25 @@ document.getElementById("who").addEventListener("click", (e) => {
   document.querySelectorAll("#who button").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
 });
 
+(async () => {
+  const token = localStorage.getItem("shadow_token") || "";
+  const me = token ? await fetch(API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "me", token })
+  }).then((r) => r.json()).catch(() => ({})) : {};
+  if (me.ok && me.email) {
+    email = me.email;
+    localStorage.setItem("shadow_email", email);
+    document.getElementById("whoami").textContent = "Signed in as " + email;
+  } else {
+    document.getElementById("whoami").innerHTML = 'Not signed in. <a href="account.html">Create account or log in</a>';
+  }
+})();
+
 document.getElementById("start").onclick = async () => {
-  const email = document.getElementById("email").value.trim().toLowerCase();
   const status = document.getElementById("status");
-  if (!email) { status.textContent = "Enter the member email."; return; }
+  if (!email) { status.textContent = "Log in first."; return; }
   status.textContent = "Minting session for " + character + "…";
   try {
     if (room) { await room.disconnect(); room = null; }
@@ -69,10 +79,10 @@ document.getElementById("start").onclick = async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "session-start", email, character })
     }).then((r) => r.json());
-    if (!minted.ok) throw new Error(JSON.stringify(minted));
+    if (!minted.ok) throw new Error(minted.error || JSON.stringify(minted));
+    const reused = minted.reusedMemory ? " Memory reused." : " First saved session.";
     const token = minted.liveavatar?.data?.session_token;
     if (!token) throw new Error("No session_token");
-    status.textContent = "Starting room…";
     const started = await fetch("https://api.liveavatar.com/v1/sessions/start", {
       method: "POST",
       headers: { Authorization: "Bearer " + token, Accept: "application/json" }
@@ -88,7 +98,7 @@ document.getElementById("start").onclick = async () => {
     });
     await room.connect(url, lkToken);
     await room.localParticipant.setMicrophoneEnabled(true);
-    status.textContent = character + " is live. Speak or wait for the avatar.";
+    status.textContent = character + " is live." + reused;
   } catch (err) {
     status.textContent = String(err.message || err);
   }

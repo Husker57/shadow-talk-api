@@ -27,17 +27,35 @@ function liveKey(env) {
   return env.LIVEAVATAR_API_KEY || env.LIVEAVATAR_KEY || env.LIVEAVATAR || env.API_KEY || env.MY_VARIABLE || "";
 }
 
+async function sha256(text) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function ensureDb(db) {
+  if (!db) return;
+  await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS member_memory (
+      email TEXT NOT NULL, character TEXT NOT NULL, session_id TEXT, memory_id TEXT, updated INTEGER,
+      PRIMARY KEY (email, character))`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS members (
+      email TEXT PRIMARY KEY, pass_hash TEXT NOT NULL, created INTEGER)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY, email TEXT NOT NULL, created INTEGER)`),
+  ]);
+}
+
 export default {
   async fetch(request, env) {
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: CORS });
-    }
+    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     const db = env.DB || env.shadow_realm;
+    const readyDb = db && typeof db.prepare === "function" ? db : null;
+    if (readyDb) await ensureDb(readyDb);
     if (request.method === "GET") {
       return json({
         ok: true,
         service: "shadow-talk-api",
-        hasDb: !!(db && typeof db.prepare === "function"),
+        hasDb: !!readyDb,
         hasLiveKey: !!liveKey(env),
         envNames: Object.keys(env || {}),
         characters: CHARACTERS,
@@ -49,36 +67,42 @@ export default {
     const action = String(body.action || "");
     const email = String(body.email || "").trim().toLowerCase();
     const character = String(body.character || "").trim().toLowerCase();
-    const readyDb = db && typeof db.prepare === "function" ? db : null;
     const key = liveKey(env);
-    if (action === "list-agents" || action === "list-avatars") {
-      if (!key) return json({ error: "LiveAvatar key missing" }, 500);
-      const url = action === "list-avatars"
-        ? "https://api.liveavatar.com/v1/avatars?page_size=100"
-        : "https://api.liveavatar.com/v1/voice_agents";
-      const la = await fetch(url, { headers: { "X-API-KEY": key } });
-      const data = await la.json().catch(() => ({}));
-      return json({ ok: la.ok, liveavatar: data }, la.ok ? 200 : 502);
+
+    if (action === "signup") {
+      if (!readyDb) return json({ error: "D1 binding missing" }, 500);
+      const password = String(body.password || "");
+      if (!email || password.length < 8) return json({ error: "Email and 8+ character password required" }, 400);
+      const exists = await readyDb.prepare("SELECT email FROM members WHERE email = ?").bind(email).first();
+      if (exists) return json({ error: "Account already exists" }, 409);
+      await readyDb.prepare("INSERT INTO members (email, pass_hash, created) VALUES (?, ?, ?)").bind(email, await sha256(password), Date.now()).run();
+      const token = crypto.randomUUID();
+      await readyDb.prepare("INSERT INTO sessions (token, email, created) VALUES (?, ?, ?)").bind(token, email, Date.now()).run();
+      return json({ ok: true, email, token });
     }
-    if ((action === "remember-get" || action === "remember-save") && !readyDb) {
-      return json({ error: "D1 binding missing" }, 500);
+    if (action === "login") {
+      if (!readyDb) return json({ error: "D1 binding missing" }, 500);
+      const password = String(body.password || "");
+      if (!email || !password) return json({ error: "Email and password required" }, 400);
+      const row = await readyDb.prepare("SELECT email, pass_hash FROM members WHERE email = ?").bind(email).first();
+      if (!row || row.pass_hash !== await sha256(password)) return json({ error: "Email or password is wrong" }, 401);
+      const token = crypto.randomUUID();
+      await readyDb.prepare("INSERT INTO sessions (token, email, created) VALUES (?, ?, ?)").bind(token, email, Date.now()).run();
+      return json({ ok: true, email, token });
+    }
+    if (action === "me") {
+      if (!readyDb) return json({ error: "D1 binding missing" }, 500);
+      const token = String(body.token || "");
+      const row = await readyDb.prepare("SELECT email FROM sessions WHERE token = ?").bind(token).first();
+      return json({ ok: !!row, email: row?.email || null });
     }
     if (action === "remember-get") {
+      if (!readyDb) return json({ error: "D1 binding missing" }, 500);
       if (!email || !character) return json({ error: "email and character required" }, 400);
       const row = await readyDb.prepare(
         "SELECT session_id, memory_id, updated FROM member_memory WHERE email = ? AND character = ?"
       ).bind(email, character).first();
       return json({ ok: true, memory: row || null });
-    }
-    if (action === "remember-save") {
-      if (!email || !character) return json({ error: "email and character required" }, 400);
-      await readyDb.prepare(
-        `INSERT INTO member_memory (email, character, session_id, memory_id, updated)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(email, character) DO UPDATE SET
-           session_id = excluded.session_id, memory_id = excluded.memory_id, updated = excluded.updated`
-      ).bind(email, character, String(body.session_id || ""), String(body.memory_id || ""), Date.now()).run();
-      return json({ ok: true });
     }
     if (action === "session-start") {
       if (!key) return json({ error: "Add LIVEAVATAR_API_KEY secret on Production runtime" }, 500);
@@ -124,6 +148,7 @@ export default {
         character,
         avatar_id: who.avatar_id,
         voice_agent_id: who.voice_agent_id,
+        reusedMemory: !!(prev && (prev.memory_id || prev.session_id)),
         liveavatar: data,
         saved_session_id: session_id,
         memorySaved: !!(readyDb && session_id),
@@ -134,8 +159,5 @@ export default {
 };
 
 function json(obj, status = 200) {
-  return new Response(JSON.stringify(obj), {
-    status,
-    headers: { "Content-Type": "application/json", ...CORS },
-  });
+  return new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json", ...CORS } });
 }

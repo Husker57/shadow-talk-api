@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Account · Shadow Realm</title>
+  <style>
+    body { margin:0; font-family:system-ui,sans-serif; background:#121212; color:#f3f3f3; }
+    main { max-width:420px; margin:40px auto; padding:20px; }
+    input, button { width:100%; font:inherit; margin:8px 0; padding:12px; border-radius:8px; border:0; }
+    input { background:#111; color:#fff; border:1px solid #333; }
+    button { background:#c9a227; font-weight:700; cursor:pointer; }
+    .ghost { background:#2a2a2a; color:#fff; }
+    .status { color:#9a9a9a; min-height:1.4em; }
+    a { color:#c9a227; }
+  </style>
+</head>
+<body>
+  <main>
+    <p><a href="index.html">Home</a></p>
+    <h1>Member account</h1>
+    <input id="email" type="email" placeholder="Email" />
+    <input id="password" type="password" placeholder="Password (8+ characters)" />
+    <button id="login" type="button">Log in</button>
+    <button id="signup" class="ghost" type="button">Create account</button>
+    <p class="status" id="status"></p>
+    <p><a href="talk.html">Go to the desk</a></p>
+  </main>
+<script>
+const API = "https://shadow-talk-api.spring-fog-46d4.workers.dev";
+async function send(action) {
+  const email = document.getElementById("email").value.trim().toLowerCase();
+  const password = document.getElementById("password").value;
+  const status = document.getElementById("status");
+  status.textContent = "Working…";
+  const res = await fetch(API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, email, password })
+  }).then((r) => r.json());
+  if (!res.ok) { status.textContent = res.error || "Failed"; return; }
+  localStorage.setItem("shadow_token", res.token);
+  localStorage.setItem("shadow_email", res.email);
+  status.textContent = "Signed in as " + res.email;
+  location.href = "talk.html";
+}
+document.getElementById("login").onclick = () => send("login");
+document.getElementById("signup").onclick = () => send("signup");
+</script>
+</body>
+</html>
