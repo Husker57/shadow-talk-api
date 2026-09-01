@@ -4,6 +4,13 @@ const CORS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
+const AVATARS = {
+  lenai: "ef9a01a2-e90f-4ebb-8c15-63c4aa849066",
+  victor: "58920813-02a3-4a75-9b81-00ff577f74f0",
+  elena: "b6b87c95-6142-4ce3-8b11-b2ac9d25b975",
+  damian: "665f972b-6114-4d88-a958-e6e00448f3fd",
+};
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -13,7 +20,12 @@ export default {
     const db = env.DB || env.shadow_realm;
 
     if (request.method === "GET") {
-      return json({ ok: true, service: "shadow-talk-api", hasDb: !!db });
+      return json({
+        ok: true,
+        service: "shadow-talk-api",
+        hasDb: !!db,
+        characters: Object.keys(AVATARS),
+      });
     }
 
     if (request.method !== "POST") {
@@ -65,8 +77,8 @@ export default {
         return json({ error: "Add LIVEAVATAR_API_KEY secret" }, 500);
       }
       if (!email || !character) return json({ error: "email and character required" }, 400);
-      const avatar_id = String(body.avatar_id || "");
-      if (!avatar_id) return json({ error: "avatar_id required" }, 400);
+      const avatar_id = String(body.avatar_id || AVATARS[character] || "");
+      if (!avatar_id) return json({ error: "Unknown character. Use lenai, victor, elena, or damian." }, 400);
 
       const prev = await db.prepare(
         "SELECT session_id, memory_id FROM member_memory WHERE email = ? AND character = ?"
@@ -97,19 +109,33 @@ export default {
       if (!la.ok) return json({ error: "LiveAvatar token failed", detail: data }, 502);
 
       const session_id = data?.data?.session_id || data?.session_id || "";
+      const memory_id =
+        data?.data?.session_memory_id ||
+        data?.data?.memory_id ||
+        data?.session_memory_id ||
+        prev?.memory_id ||
+        "";
       if (session_id) {
         await db.prepare(
           `INSERT INTO member_memory (email, character, session_id, memory_id, updated)
            VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(email, character) DO UPDATE SET
              session_id = excluded.session_id,
+             memory_id = excluded.memory_id,
              updated = excluded.updated`
         )
-          .bind(email, character, session_id, prev?.memory_id || "", Date.now())
+          .bind(email, character, session_id, memory_id, Date.now())
           .run();
       }
 
-      return json({ ok: true, liveavatar: data, saved_session_id: session_id });
+      return json({
+        ok: true,
+        character,
+        avatar_id,
+        liveavatar: data,
+        saved_session_id: session_id,
+        reused: !!(prev && (prev.memory_id || prev.session_id)),
+      });
     }
 
     return json({ error: "Unknown action" }, 400);
