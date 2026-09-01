@@ -8,19 +8,19 @@ const SHARED_VOICE_AGENT = "1ddd1794-15f4-45de-ba78-13e328a6e554";
 
 const CHARACTERS = {
   lenai: {
-    avatar_id: "ef9a01a2-e90f-4ebb-8c15-63c4aa849066",
+    avatar_id: "a18274af-db61-421c-977d-5dfeb725b8fe",
     voice_agent_id: SHARED_VOICE_AGENT,
   },
   victor: {
-    avatar_id: "58920813-02a3-4a75-9b81-00ff577f74f0",
+    avatar_id: "24931786-3965-44ab-8cdb-7cf3bb7eeec9",
     voice_agent_id: SHARED_VOICE_AGENT,
   },
   elena: {
-    avatar_id: "b6b87c95-6142-4ce3-8b11-b2ac9d25b975",
+    avatar_id: "75933fd3-6e78-4a52-9fd6-1c82f7541a12",
     voice_agent_id: SHARED_VOICE_AGENT,
   },
   damian: {
-    avatar_id: "665f972b-6114-4d88-a958-e6e00448f3fd",
+    avatar_id: "ba7c264f-4dcd-4417-b95e-edc9c350ed90",
     voice_agent_id: SHARED_VOICE_AGENT,
   },
 };
@@ -34,7 +34,6 @@ export default {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS });
     }
-
     const db = env.DB || env.shadow_realm;
     if (request.method === "GET") {
       return json({
@@ -43,20 +42,17 @@ export default {
         hasDb: !!(db && typeof db.prepare === "function"),
         hasLiveKey: !!liveKey(env),
         envNames: Object.keys(env || {}),
-        characters: Object.keys(CHARACTERS),
+        characters: CHARACTERS,
       });
     }
     if (request.method !== "POST") return json({ error: "POST JSON" }, 405);
-
     let body = {};
     try { body = await request.json(); } catch { return json({ error: "JSON body required" }, 400); }
-
     const action = String(body.action || "");
     const email = String(body.email || "").trim().toLowerCase();
     const character = String(body.character || "").trim().toLowerCase();
     const readyDb = db && typeof db.prepare === "function" ? db : null;
     const key = liveKey(env);
-
     if (action === "list-agents" || action === "list-avatars") {
       if (!key) return json({ error: "LiveAvatar key missing" }, 500);
       const url = action === "list-avatars"
@@ -66,11 +62,9 @@ export default {
       const data = await la.json().catch(() => ({}));
       return json({ ok: la.ok, liveavatar: data }, la.ok ? 200 : 502);
     }
-
     if ((action === "remember-get" || action === "remember-save") && !readyDb) {
       return json({ error: "D1 binding missing" }, 500);
     }
-
     if (action === "remember-get") {
       if (!email || !character) return json({ error: "email and character required" }, 400);
       const row = await readyDb.prepare(
@@ -78,7 +72,6 @@ export default {
       ).bind(email, character).first();
       return json({ ok: true, memory: row || null });
     }
-
     if (action === "remember-save") {
       if (!email || !character) return json({ error: "email and character required" }, 400);
       await readyDb.prepare(
@@ -89,7 +82,6 @@ export default {
       ).bind(email, character, String(body.session_id || ""), String(body.memory_id || ""), Date.now()).run();
       return json({ ok: true });
     }
-
     if (action === "session-start") {
       if (!key) return json({ error: "Add LIVEAVATAR_API_KEY secret on Production runtime" }, 500);
       if (!email || !character) return json({ error: "email and character required" }, 400);
@@ -103,9 +95,9 @@ export default {
       }
       const payload = {
         mode: "FULL",
-        avatar_id: body.avatar_id || who.avatar_id,
+        avatar_id: who.avatar_id,
         interactivity_type: "CONVERSATIONAL",
-        voice_agent: { id: body.voice_agent_id || who.voice_agent_id },
+        voice_agent: { id: who.voice_agent_id },
       };
       if (prev && (prev.memory_id || prev.session_id)) {
         payload.memory = {};
@@ -129,9 +121,8 @@ export default {
              session_id = excluded.session_id, memory_id = excluded.memory_id, updated = excluded.updated`
         ).bind(email, character, session_id, memory_id, Date.now()).run();
       }
-      return json({ ok: true, character, liveavatar: data, saved_session_id: session_id, memorySaved: !!(readyDb && session_id) });
+      return json({ ok: true, character, avatar_id: who.avatar_id, liveavatar: data, saved_session_id: session_id, memorySaved: !!(readyDb && session_id) });
     }
-
     return json({ error: "Unknown action" }, 400);
   },
 };
