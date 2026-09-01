@@ -4,22 +4,24 @@ const CORS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
+const SHARED_VOICE_AGENT = "1ddd1794-15f4-45de-ba78-13e328a6e554";
+
 const CHARACTERS = {
   lenai: {
     avatar_id: "ef9a01a2-e90f-4ebb-8c15-63c4aa849066",
-    voice_agent_id: "a18274af-db61-421c-977d-5dfeb725b8fe",
+    voice_agent_id: SHARED_VOICE_AGENT,
   },
   victor: {
     avatar_id: "58920813-02a3-4a75-9b81-00ff577f74f0",
-    voice_agent_id: "24931786-3965-44ab-8cdb-7cf3bb7eeec9",
+    voice_agent_id: SHARED_VOICE_AGENT,
   },
   elena: {
     avatar_id: "b6b87c95-6142-4ce3-8b11-b2ac9d25b975",
-    voice_agent_id: "75933fd3-6e78-4a52-9fd6-1c82f7541a12",
+    voice_agent_id: SHARED_VOICE_AGENT,
   },
   damian: {
     avatar_id: "665f972b-6114-4d88-a958-e6e00448f3fd",
-    voice_agent_id: "ba7c264f-4dcd-4417-b95e-edc9c350ed90",
+    voice_agent_id: SHARED_VOICE_AGENT,
   },
 };
 
@@ -43,6 +45,7 @@ export default {
         hasLiveKey: !!liveKey(env),
         envNames: Object.keys(env || {}),
         characters: Object.keys(CHARACTERS),
+        voiceAgent: SHARED_VOICE_AGENT,
       });
     }
 
@@ -118,7 +121,7 @@ export default {
         mode: "FULL",
         avatar_id: who.avatar_id,
         interactivity_type: "CONVERSATIONAL",
-        voice_agent: { id: who.voice_agent_id },
+        voice_agent: { id: body.voice_agent_id || who.voice_agent_id },
       };
       if (prev && (prev.memory_id || prev.session_id)) {
         payload.memory = {};
