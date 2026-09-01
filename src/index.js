@@ -21,7 +21,7 @@ const CHARACTERS = {
   },
   damian: {
     avatar_id: "ba7c264f-4dcd-4417-b95e-edc9c350ed90",
-    voice_agent_id: SHARED_VOICE_AGENT,
+    voice_agent_id: "476b0b97-c495-4eb7-b3c5-47a597c4889d",
   },
 };
 
@@ -121,7 +121,7 @@ export default {
              session_id = excluded.session_id, memory_id = excluded.memory_id, updated = excluded.updated`
         ).bind(email, character, session_id, memory_id, Date.now()).run();
       }
-      return json({ ok: true, character, avatar_id: who.avatar_id, liveavatar: data, saved_session_id: session_id, memorySaved: !!(readyDb && session_id) });
+      return json({ ok: true, character, avatar_id: who.avatar_id, voice_agent_id: who.voice_agent_id, liveavatar: data, saved_session_id: session_id, memorySaved: !!(readyDb && session_id) });
     }
     return json({ error: "Unknown action" }, 400);
   },
