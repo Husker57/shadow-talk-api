@@ -45,6 +45,25 @@ async function ensureDb(db) {
   ]);
 }
 
+async function stopSession(key, session_id) {
+  if (!session_id) return;
+  await fetch("https://api.liveavatar.com/v1/sessions/stop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-API-KEY": key },
+    body: JSON.stringify({ session_id, reason: "USER_CLOSED" }),
+  }).catch(() => {});
+}
+
+async function mintToken(key, payload) {
+  const la = await fetch("https://api.liveavatar.com/v1/sessions/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-API-KEY": key },
+    body: JSON.stringify(payload),
+  });
+  const data = await la.json().catch(() => ({}));
+  return { ok: la.ok, data };
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
@@ -109,8 +128,15 @@ export default {
       if (!email || !character) return json({ error: "email and character required" }, 400);
       const who = CHARACTERS[character];
       if (!who) return json({ error: "Unknown character" }, 400);
-      let prev = null;
       if (readyDb) {
+        const open = await readyDb.prepare(
+          "SELECT session_id FROM member_memory WHERE email = ? AND character = ?"
+        ).bind(email, character).first();
+        if (open && open.session_id) await stopSession(key, open.session_id);
+      }
+      let prev = null;
+      const fresh = body.fresh === true || String(email).startsWith("demo") || String(email).startsWith("fresh");
+      if (readyDb && !fresh) {
         prev = await readyDb.prepare(
           "SELECT session_id, memory_id FROM member_memory WHERE email = ? AND character = ?"
         ).bind(email, character).first();
@@ -120,22 +146,22 @@ export default {
         avatar_id: who.avatar_id,
         interactivity_type: "CONVERSATIONAL",
         voice_agent: { id: who.voice_agent_id },
+        memory: null
       };
-      if (prev && (prev.memory_id || prev.session_id)) {
-        payload.memory = {};
-        if (prev.memory_id) payload.memory.session_memory_id = prev.memory_id;
-        else payload.memory.prev_session_id = prev.session_id;
+      if (!fresh && prev && prev.memory_id) {
+        payload.memory = { session_memory_id: prev.memory_id };
       }
-      const la = await fetch("https://api.liveavatar.com/v1/sessions/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-API-KEY": key },
-        body: JSON.stringify(payload),
-      });
-      const data = await la.json().catch(() => ({}));
-      if (!la.ok) return json({ error: "LiveAvatar token failed", detail: data }, 502);
+      let minted = await mintToken(key, payload);
+      if (!minted.ok) {
+        payload.memory = null;
+        minted = await mintToken(key, payload);
+        prev = null;
+      }
+      if (!minted.ok) return json({ error: "LiveAvatar token failed", detail: minted.data }, 502);
+      const data = minted.data;
       const session_id = data?.data?.session_id || data?.session_id || "";
       const memory_id = data?.data?.session_memory_id || data?.data?.memory_id || prev?.memory_id || "";
-      if (readyDb && session_id) {
+      if (readyDb && session_id && !fresh) {
         await readyDb.prepare(
           `INSERT INTO member_memory (email, character, session_id, memory_id, updated)
            VALUES (?, ?, ?, ?, ?)
@@ -148,10 +174,10 @@ export default {
         character,
         avatar_id: who.avatar_id,
         voice_agent_id: who.voice_agent_id,
-        reusedMemory: !!(prev && (prev.memory_id || prev.session_id)),
+        reusedMemory: !!(prev && prev.memory_id),
         liveavatar: data,
         saved_session_id: session_id,
-        memorySaved: !!(readyDb && session_id),
+        memorySaved: !!(readyDb && session_id && !fresh),
       });
     }
     return json({ error: "Unknown action" }, 400);
