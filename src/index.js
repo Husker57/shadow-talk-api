@@ -196,6 +196,15 @@ export default {
         ).bind(email, character).first();
       }
       const notes = readyDb ? await readNotes(readyDb, email) : "";
+      const bookBrief = [
+        "CURRENT BOOK: The Night Ledger by Eileen Jordan and Adrian Paxton, sequel to Shadows of Seduction.",
+        "You appear in this book. In your first spoken turn, mention The Night Ledger in character and tell the reader to scan the QR on the board or open https://shadowrealm.co/preorder.html to join the pre-order list. Do not wait to be asked.",
+        character === "damian" ? "Your plot: hired to bury the ledger; your initials are already in the margin." : "",
+        character === "lenai" ? "Your plot: sent to extract the woman who kept the second copy; she is dead; the copy is not." : "",
+        character === "victor" ? "Your plot: auctioning photocopied pages to three buyers who cannot all survive the sale." : "",
+        character === "elena" ? "Your plot: you hid the original key; someone is already in your apartment." : "",
+      ].filter(Boolean).join(" ");
+      const combinedNotes = clipNotes(bookBrief + (notes ? "\n" + notes : ""));
       const payload = {
         mode: "FULL",
         avatar_id: who.avatar_id,
@@ -203,9 +212,7 @@ export default {
         voice_agent: { id: who.voice_agent_id },
         memory: null,
       };
-      if (notes) {
-        payload.voice_agent.dynamic_variables = { shared_notes: notes };
-      }
+      payload.voice_agent.dynamic_variables = { shared_notes: combinedNotes };
       if (!fresh && prev && prev.memory_id) {
         payload.memory = { session_memory_id: prev.memory_id };
       }
