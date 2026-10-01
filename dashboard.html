@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Shadow Realm · Desk v2</title>
+<style>
+:root{--bg:#100c0c;--card:#1a1214;--line:#3a2a2c;--ink:#f6efe8;--muted:#b5a297;--gold:#c6a15b;--ok:#8fbf8a;--no:#c46b62}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(1200px 500px at 50% -10%,#2a1a1c,var(--bg));color:var(--ink);font:16px/1.45 Georgia,serif}
+main{width:min(980px,calc(100% - 28px));margin:0 auto;padding:28px 0 48px}
+.kicker{letter-spacing:.18em;text-transform:uppercase;color:var(--gold);font-size:.72rem}
+h1{font-weight:500;font-size:clamp(1.8rem,4vw,2.6rem);margin:.2rem 0 .4rem}
+.lede{color:var(--muted);max-width:40rem}.row{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}
+.pill{border:1px solid var(--line);border-radius:999px;padding:6px 12px;color:var(--gold)}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}
+.card b{display:block;font-size:1.15rem;margin:4px 0}.ok{color:var(--ok)}.no{color:var(--no)}
+table{width:100%;border-collapse:collapse;margin-top:8px}td{padding:8px 0;border-bottom:1px solid var(--line)}td:last-child{text-align:right;color:var(--gold)}
+button{background:#6d2430;color:#fff8f2;border:0;border-radius:999px;padding:10px 16px;font:inherit;cursor:pointer}
+</style></head>
+<body><main>
+<p class="kicker">Tales of Desire Inc · gateway 2823475</p>
+<h1>Shadow desk v2</h1>
+<p class="lede">One merchant. Four invoice prefixes. Keys stay on the Workers. This page only shows whether each desk can charge.</p>
+<div class="row"><span class="pill" id="stamp">Checking desks…</span><button type="button" id="reload">Refresh</button></div>
+<div class="grid" id="sites"></div>
+<section class="card" style="margin-top:12px"><p class="kicker">Shadow characters</p><table id="cast"></table></section>
+</main>
+<script>
+var DESKS=[{name:"Shadow Realm",code:"SHADOW",url:"https://shadow-talk-api.spring-fog-46d4.workers.dev"},{name:"Santa Realm",code:"SANTA",url:"https://santa-talk-api.spring-fog-46d4.workers.dev"},{name:"Jesus Realm",code:"JESUS",url:"https://jesus-talk-api.spring-fog-46d4.workers.dev"},{name:"Lineup Realm",code:"LINEUP",url:"https://lineup-talk-api.spring-fog-46d4.workers.dev"}];
+function flag(v){return v?"<span class='ok'>Ready</span>":"<span class='no'>Missing</span>"}
+async function load(){document.getElementById("stamp").textContent="Checking desks…";var cards="",cast="";
+for(var i=0;i<DESKS.length;i++){var d=DESKS[i],pay={ready:false,client:false},version="—";
+try{var data=await (await fetch(d.url)).json();version=data.v||data.site||"up";pay=data.pay||{};if(d.code==="LINEUP"&&data.ready)pay={ready:true,client:!!data.clientKey};if(d.code==="SHADOW"&&data.characters)Object.keys(data.characters).forEach(function(name){cast+="<tr><td>"+name+"</td><td>on desk</td></tr>"})}
+catch(e){version="down"}
+cards+="<article class='card'><p class='kicker'>"+d.code+"</p><b>"+d.name+"</b><p>Version "+version+"</p><p>Charge "+flag(pay.ready)+"</p><p>Card box "+flag(pay.client)+"</p></article>"}
+document.getElementById("sites").innerHTML=cards;document.getElementById("cast").innerHTML=cast||"<tr><td>Cast</td><td>waiting</td></tr>";document.getElementById("stamp").textContent="Updated "+new Date().toLocaleTimeString()}
+document.getElementById("reload").onclick=load;load();
+</script></body></html>
