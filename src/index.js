@@ -1,3 +1,5 @@
+import { authnetEnv, chargeCard, shadowOrder } from "./charge.js";
+
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type",
@@ -5,73 +7,42 @@ const CORS = {
 };
 
 const CHARACTERS = {
-  lenai: {
-    avatar_id: "a18274af-db61-421c-977d-5dfeb725b8fe",
-    voice_agent_id: "7ca88c75-e4d8-498b-941c-43de04abafb3",
-  },
-  victor: {
-    avatar_id: "24931786-3965-44ab-8cdb-7cf3bb7eeec9",
-    voice_agent_id: "111dcdcc-a2ae-49ca-9a98-0e8633a2e6e2",
-  },
-  elena: {
-    avatar_id: "75933fd3-6e78-4a52-9fd6-1c82f7541a12",
-    voice_agent_id: "efe5b6a8-39b3-4ab3-a0e9-dfc98aa0b46d",
-  },
-  damian: {
-    avatar_id: "ba7c264f-4dcd-4417-b95e-edc9c350ed90",
-    voice_agent_id: "476b0b97-c495-4eb7-b3c5-47a597c4889d",
-  },
+  lenai: { avatar_id: "a18274af-db61-421c-977d-5dfeb725b8fe", voice_agent_id: "7ca88c75-e4d8-498b-941c-43de04abafb3" },
+  victor: { avatar_id: "24931786-3965-44ab-8cdb-7cf3bb7eeec9", voice_agent_id: "111dcdcc-a2ae-49ca-9a98-0e8633a2e6e2" },
+  elena: { avatar_id: "75933fd3-6e78-4a52-9fd6-1c82f7541a12", voice_agent_id: "efe5b6a8-39b3-4ab3-a0e9-dfc98aa0b46d" },
+  damian: { avatar_id: "ba7c264f-4dcd-4417-b95e-edc9c350ed90", voice_agent_id: "476b0b97-c495-4eb7-b3c5-47a597c4889d" },
 };
 
 function liveKey(env) {
   return env.LIVEAVATAR_API_KEY || env.LIVEAVATAR_KEY || env.LIVEAVATAR || env.API_KEY || env.MY_VARIABLE || "";
 }
-
 async function sha256(text) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
-
 async function ensureDb(db) {
   if (!db) return;
   await db.batch([
-    db.prepare(`CREATE TABLE IF NOT EXISTS member_memory (
-      email TEXT NOT NULL, character TEXT NOT NULL, session_id TEXT, memory_id TEXT, updated INTEGER,
-      PRIMARY KEY (email, character))`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS members (
-      email TEXT PRIMARY KEY, pass_hash TEXT NOT NULL, created INTEGER)`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS sessions (
-      token TEXT PRIMARY KEY, email TEXT NOT NULL, created INTEGER)`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS shared_notes (
-      email TEXT PRIMARY KEY, notes TEXT, updated INTEGER)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS member_memory (email TEXT NOT NULL, character TEXT NOT NULL, session_id TEXT, memory_id TEXT, updated INTEGER, PRIMARY KEY (email, character))`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS members (email TEXT PRIMARY KEY, pass_hash TEXT NOT NULL, created INTEGER)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, email TEXT NOT NULL, created INTEGER)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS shared_notes (email TEXT PRIMARY KEY, notes TEXT, updated INTEGER)`),
   ]);
 }
-
 async function stopSession(key, session_id) {
   if (!session_id) return;
-  await fetch("https://api.liveavatar.com/v1/sessions/stop", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-API-KEY": key },
-    body: JSON.stringify({ session_id, reason: "USER_CLOSED" }),
-  }).catch(() => {});
+  await fetch("https://api.liveavatar.com/v1/sessions/stop", { method: "POST", headers: { "Content-Type": "application/json", "X-API-KEY": key }, body: JSON.stringify({ session_id, reason: "USER_CLOSED" }) }).catch(() => {});
 }
-
 async function mintToken(key, payload) {
-  const la = await fetch("https://api.liveavatar.com/v1/sessions/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-API-KEY": key },
-    body: JSON.stringify(payload),
-  });
+  const la = await fetch("https://api.liveavatar.com/v1/sessions/token", { method: "POST", headers: { "Content-Type": "application/json", "X-API-KEY": key }, body: JSON.stringify(payload) });
   const data = await la.json().catch(() => ({}));
   return { ok: la.ok, data };
 }
-
 async function readNotes(db, email) {
   if (!db || !email) return "";
   const row = await db.prepare("SELECT notes FROM shared_notes WHERE email = ?").bind(email).first();
   return (row && row.notes) || "";
 }
-
 function clipNotes(text) {
   const t = String(text || "").trim();
   return t.length > 3500 ? t.slice(-3500) : t;
@@ -83,15 +54,9 @@ export default {
     const db = env.DB || env.shadow_realm;
     const readyDb = db && typeof db.prepare === "function" ? db : null;
     if (readyDb) await ensureDb(readyDb);
+    const pay = authnetEnv(env);
     if (request.method === "GET") {
-      return json({
-        ok: true,
-        service: "shadow-talk-api",
-        hasDb: !!readyDb,
-        hasLiveKey: !!liveKey(env),
-        envNames: Object.keys(env || {}),
-        characters: CHARACTERS,
-      });
+      return json({ ok: true, service: "shadow-talk-api", v: 2, site: "shadowrealm", siteCode: "SHADOW", gateway: "2823475", hasDb: !!readyDb, hasLiveKey: !!liveKey(env), pay: { ready: !!(pay.login && pay.key), client: !!pay.client }, characters: CHARACTERS });
     }
     if (request.method !== "POST") return json({ error: "POST JSON" }, 405);
     let body = {};
@@ -101,6 +66,14 @@ export default {
     const character = String(body.character || "").trim().toLowerCase();
     const key = liveKey(env);
 
+    if (action === "checkout-config") {
+      return json({ ok: true, ready: !!(pay.login && pay.key && pay.client), site: "shadowrealm", siteCode: "SHADOW", gateway: "2823475" });
+    }
+    if (action === "checkout-charge") {
+      const order = shadowOrder(body);
+      const paid = await chargeCard(env, order, body);
+      return json(paid, paid.ok ? 200 : 402);
+    }
     if (action === "signup") {
       if (!readyDb) return json({ error: "D1 binding missing" }, 500);
       const password = String(body.password || "");
@@ -140,10 +113,7 @@ export default {
       if (!line) return json({ error: "line required" }, 400);
       const prev = await readNotes(readyDb, email);
       const next = clipNotes((prev ? prev + "\n" : "") + line);
-      await readyDb.prepare(
-        `INSERT INTO shared_notes (email, notes, updated) VALUES (?, ?, ?)
-         ON CONFLICT(email) DO UPDATE SET notes = excluded.notes, updated = excluded.updated`
-      ).bind(email, next, Date.now()).run();
+      await readyDb.prepare(`INSERT INTO shared_notes (email, notes, updated) VALUES (?, ?, ?) ON CONFLICT(email) DO UPDATE SET notes = excluded.notes, updated = excluded.updated`).bind(email, next, Date.now()).run();
       return json({ ok: true, notes: next });
     }
     if (action === "notes-clear") {
@@ -155,18 +125,14 @@ export default {
     if (action === "remember-get") {
       if (!readyDb) return json({ error: "D1 binding missing" }, 500);
       if (!email || !character) return json({ error: "email and character required" }, 400);
-      const row = await readyDb.prepare(
-        "SELECT session_id, memory_id, updated FROM member_memory WHERE email = ? AND character = ?"
-      ).bind(email, character).first();
+      const row = await readyDb.prepare("SELECT session_id, memory_id, updated FROM member_memory WHERE email = ? AND character = ?").bind(email, character).first();
       return json({ ok: true, memory: row || null });
     }
     if (action === "session-stop") {
       if (!key) return json({ error: "Add LIVEAVATAR_API_KEY secret on Production runtime" }, 500);
       let sid = String(body.session_id || "").trim();
       if (!sid && readyDb && email) {
-        const rows = await readyDb.prepare(
-          "SELECT session_id FROM member_memory WHERE email = ?"
-        ).bind(email).all();
+        const rows = await readyDb.prepare("SELECT session_id FROM member_memory WHERE email = ?").bind(email).all();
         const list = (rows && rows.results) || [];
         for (const row of list) if (row.session_id) await stopSession(key, row.session_id);
         return json({ ok: true, stopped: list.length });
@@ -180,21 +146,13 @@ export default {
       const who = CHARACTERS[character];
       if (!who) return json({ error: "Unknown character" }, 400);
       if (readyDb) {
-        const opens = await readyDb.prepare(
-          "SELECT session_id FROM member_memory WHERE email = ?"
-        ).bind(email).all();
+        const opens = await readyDb.prepare("SELECT session_id FROM member_memory WHERE email = ?").bind(email).all();
         const list = (opens && opens.results) || [];
-        for (const row of list) {
-          if (row.session_id) await stopSession(key, row.session_id);
-        }
+        for (const row of list) if (row.session_id) await stopSession(key, row.session_id);
       }
       let prev = null;
       const fresh = body.fresh === true || String(email).startsWith("demo") || String(email).startsWith("fresh");
-      if (readyDb && !fresh) {
-        prev = await readyDb.prepare(
-          "SELECT session_id, memory_id FROM member_memory WHERE email = ? AND character = ?"
-        ).bind(email, character).first();
-      }
+      if (readyDb && !fresh) prev = await readyDb.prepare("SELECT session_id, memory_id FROM member_memory WHERE email = ? AND character = ?").bind(email, character).first();
       const notes = readyDb ? await readNotes(readyDb, email) : "";
       const bookBrief = [
         "CURRENT BOOK: The Night Ledger by Eileen Jordan and Adrian Paxton, sequel to Shadows of Seduction.",
@@ -205,17 +163,9 @@ export default {
         character === "elena" ? "Your plot: you hid the original key; someone is already in your apartment." : "",
       ].filter(Boolean).join(" ");
       const combinedNotes = clipNotes(bookBrief + (notes ? "\n" + notes : ""));
-      const payload = {
-        mode: "FULL",
-        avatar_id: who.avatar_id,
-        interactivity_type: "CONVERSATIONAL",
-        voice_agent: { id: who.voice_agent_id },
-        memory: null,
-      };
+      const payload = { mode: "FULL", avatar_id: who.avatar_id, interactivity_type: "CONVERSATIONAL", voice_agent: { id: who.voice_agent_id }, memory: null };
       payload.voice_agent.dynamic_variables = { shared_notes: combinedNotes };
-      if (!fresh && prev && prev.memory_id) {
-        payload.memory = { session_memory_id: prev.memory_id };
-      }
+      if (!fresh && prev && prev.memory_id) payload.memory = { session_memory_id: prev.memory_id };
       let minted = await mintToken(key, payload);
       if (!minted.ok) {
         payload.memory = null;
@@ -229,24 +179,9 @@ export default {
       const session_id = data?.data?.session_id || data?.session_id || "";
       const memory_id = data?.data?.session_memory_id || data?.data?.memory_id || prev?.memory_id || "";
       if (readyDb && session_id && !fresh) {
-        await readyDb.prepare(
-          `INSERT INTO member_memory (email, character, session_id, memory_id, updated)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(email, character) DO UPDATE SET
-             session_id = excluded.session_id, memory_id = excluded.memory_id, updated = excluded.updated`
-        ).bind(email, character, session_id, memory_id, Date.now()).run();
+        await readyDb.prepare(`INSERT INTO member_memory (email, character, session_id, memory_id, updated) VALUES (?, ?, ?, ?, ?) ON CONFLICT(email, character) DO UPDATE SET session_id = excluded.session_id, memory_id = excluded.memory_id, updated = excluded.updated`).bind(email, character, session_id, memory_id, Date.now()).run();
       }
-      return json({
-        ok: true,
-        character,
-        avatar_id: who.avatar_id,
-        voice_agent_id: who.voice_agent_id,
-        reusedMemory: !!(prev && prev.memory_id),
-        liveavatar: data,
-        saved_session_id: session_id,
-        memorySaved: !!(readyDb && session_id && !fresh),
-        shared_notes: notes,
-      });
+      return json({ ok: true, character, avatar_id: who.avatar_id, voice_agent_id: who.voice_agent_id, reusedMemory: !!(prev && prev.memory_id), liveavatar: data, saved_session_id: session_id, memorySaved: !!(readyDb && session_id && !fresh), shared_notes: notes });
     }
     return json({ error: "Unknown action" }, 400);
   },
