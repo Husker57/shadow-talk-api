@@ -9,7 +9,7 @@ export function authnetEnv(env) {
 
 export function shadowOrder(body) {
   const sku = String(body.sku || body.plan || "visit").slice(0, 12);
-  const amount = String(body.price || body.amount || "").replace(/[^0-9.]/g, "");
+  const amount = ""; // set server-side by prices.js priceOrder(); the browser's price is never used
   const invoiceNumber = ("SHADOW" + sku + Date.now().toString(36)).slice(0, 20);
   return { ok: true, site: "shadowrealm", siteCode: "SHADOW", sku, amount, name: String(body.name || "").slice(0, 80), email: String(body.email || "").slice(0, 120), invoiceNumber, description: "SHADOW " + sku };
 }
@@ -20,7 +20,9 @@ export async function chargeCard(env, order, body) {
   const descriptor = String(body.dataDescriptor || "");
   const dataValue = String(body.dataValue || "");
   if (!descriptor || !dataValue) return { ok: false, error: "Card was not tokenized." };
-  const amount = Number(order.amount || body.price || 0).toFixed(2);
+  // Only charge amounts set by the server price table (see prices.js priceOrder). Never body.price.
+  if (order.priceSource !== "server") return { ok: false, error: "Amount must come from the server price table." };
+  const amount = Number(order.amount || 0).toFixed(2);
   if (!Number(amount)) return { ok: false, error: "Amount missing." };
   const url = cred.sandbox ? "https://apitest.authorize.net/xml/v1/request.api" : "https://api.authorize.net/xml/v1/request.api";
   const res = await fetch(url, {
