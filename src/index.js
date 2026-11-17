@@ -1,5 +1,6 @@
 import { authnetEnv, chargeCard, shadowOrder } from "./charge.js";
 import { priceOrder } from "./prices.js";
+import { affFields, afterCharge } from "./affiliate.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -50,14 +51,14 @@ function clipNotes(text) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     const db = env.DB || env.shadow_realm;
     const readyDb = db && typeof db.prepare === "function" ? db : null;
     if (readyDb) await ensureDb(readyDb);
     const pay = authnetEnv(env);
     if (request.method === "GET") {
-      return json({ ok: true, service: "shadow-talk-api", v: 2, site: "shadowrealm", siteCode: "SHADOW", gateway: "2823475", hasDb: !!readyDb, hasLiveKey: !!liveKey(env), pay: { ready: !!(pay.login && pay.key), client: !!pay.client }, characters: CHARACTERS });
+      return json({ ok: true, service: "shadow-talk-api", v: 3, affiliates: !!env.AFF_SIGNING_SECRET, site: "shadowrealm", siteCode: "SHADOW", gateway: "2823475", hasDb: !!readyDb, hasLiveKey: !!liveKey(env), pay: { ready: !!(pay.login && pay.key), client: !!pay.client }, characters: CHARACTERS });
     }
     if (request.method !== "POST") return json({ error: "POST JSON" }, 405);
     let body = {};
@@ -74,8 +75,10 @@ export default {
       // Amount comes from the server price table (src/prices.js), never from the browser.
       const priced = priceOrder(shadowOrder(body), body, env);
       if (!priced.ok) return json(priced, 400);
-      const order = priced.order;
+      const order = Object.assign(priced.order, affFields(body));
       const paid = await chargeCard(env, order, body);
+      // Affiliate conversion (src/affiliate.js); never blocks or fails the charge.
+      if (paid.ok) afterCharge(env, ctx, "shadowrealm.co", order, body);
       return json(paid, paid.ok ? 200 : 402);
     }
     if (action === "signup") {
