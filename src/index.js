@@ -1,4 +1,5 @@
 import { authnetEnv, chargeCard, shadowOrder } from "./charge.js";
+import { priceOrder } from "./prices.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -70,7 +71,10 @@ export default {
       return json({ ok: true, ready: !!(pay.login && pay.key && pay.client), site: "shadowrealm", siteCode: "SHADOW", gateway: "2823475" });
     }
     if (action === "checkout-charge") {
-      const order = shadowOrder(body);
+      // Amount comes from the server price table (src/prices.js), never from the browser.
+      const priced = priceOrder(shadowOrder(body), body, env);
+      if (!priced.ok) return json(priced, 400);
+      const order = priced.order;
       const paid = await chargeCard(env, order, body);
       return json(paid, paid.ok ? 200 : 402);
     }
