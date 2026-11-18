@@ -117,15 +117,19 @@ async function loadTxn(env, transId) {
   return raw ? JSON.parse(raw) : null;
 }
 
-export async function handleAnetWebhook(req, env) {
+export async function handleAnetWebhook(req, env, hooks) {
   const key = String(env.AUTHORIZE_SIGNATURE_KEY || "").trim();
   if (!key) return out({ ok: false, error: "signature key not set" }, 503);
   const raw = await req.text();
   const ok = await verifyAnetSignature(key, raw, req.headers.get("x-anet-signature"));
-  if (!ok) return out({ ok: false, error: "bad signature" }, 401);
+  if (!ok) {
+    if (env.ORDERS) await env.ORDERS.put("wh:last-bad", JSON.stringify({ at: Date.now() }), { expirationTtl: 60 * 60 * 24 * 30 });
+    return out({ ok: false, error: "bad signature" }, 401);
+  }
   let evt = {};
   try { evt = JSON.parse(raw); } catch (e) { return out({ ok: false, error: "bad json" }, 400); }
   const type = String(evt.eventType || "");
+  if (env.ORDERS) await env.ORDERS.put("wh:last", JSON.stringify({ at: Date.now(), type }), { expirationTtl: 60 * 60 * 24 * 30 });
   if (!ANET_EVENTS.includes(type)) return out({ ok: true, ignored: type || "no eventType" });
   if (!env.ORDERS) return out({ ok: true, ignored: "no ORDERS store" });
   const nid = String(evt.notificationId || "");
@@ -178,6 +182,9 @@ export async function handleAnetWebhook(req, env) {
       else await env.ORDERS.put("plan:" + txn.code, JSON.stringify({ ...plan, status: "partially_refunded", refundCents }));
     }
   }
+  if (hooks && typeof hooks.onReversed === "function") {
+    try { await hooks.onReversed(txn, full, refundCents); } catch (e) { console.log("onReversed failed", String((e && e.message) || e)); }
+  }
   await env.ORDERS.put("txn:" + id + ":" + type.split(".").slice(-2, -1)[0], JSON.stringify({ at: Date.now(), refundCents, full }));
   if (nid) await env.ORDERS.put("wh:" + nid, "done", { expirationTtl: 60 * 60 * 24 * 30 });
   return out({ ok: true, reversed: !!(txn.ref || txn.rclid), planOff: !!(full && txn.code) });
@@ -189,7 +196,7 @@ function tokenOk(env, given) {
   return want.length >= 24 && g.length === want.length && sameHex(want, g);
 }
 
-/** Admin-only: { action:"anet-status" | "anet-webhook-register", token, url? } */
+/** Admin-only: { action:"anet-status" | "anet-webhook-register" | "anet-webhook-ping", token } */
 export async function handleAnetAdmin(body, env, selfUrl) {
   if (!tokenOk(env, body.token)) return out({ ok: false, error: "unauthorized" }, 401);
   const c = authnetEnv(env);
@@ -205,7 +212,9 @@ export async function handleAnetAdmin(body, env, selfUrl) {
     } catch (e) {
       hooks = { error: String(e.message || e) };
     }
-    return out({ ok: true, sandbox: !!c.sandbox, auth: t && t.messages ? t.messages.resultCode : "unknown", signatureKey: !!env.AUTHORIZE_SIGNATURE_KEY, orders: !!env.ORDERS, webhooks: hooks });
+    const last = env.ORDERS ? await env.ORDERS.get("wh:last") : null;
+    const lastBad = env.ORDERS ? await env.ORDERS.get("wh:last-bad") : null;
+    return out({ ok: true, sandbox: !!c.sandbox, auth: t && t.messages ? t.messages.resultCode : "unknown", signatureKey: !!env.AUTHORIZE_SIGNATURE_KEY, orders: !!env.ORDERS, webhooks: hooks, lastWebhook: last ? JSON.parse(last) : null, lastBadSignature: lastBad ? JSON.parse(lastBad) : null });
   }
   if (body.action === "anet-webhook-register") {
     const url = selfUrl.replace(/\/+$/, "") + "/anet-webhook";
@@ -214,6 +223,20 @@ export async function handleAnetAdmin(body, env, selfUrl) {
     const r = await fetch(rest + "/webhooks", { method: "POST", headers: { Authorization: basic, "Content-Type": "application/json" }, body: JSON.stringify({ name: "realm_refunds", url, eventTypes: ANET_EVENTS, status: "active" }) });
     const j = await r.json().catch(() => ({}));
     return out({ ok: r.ok, status: r.status, url, webhookId: j.webhookId || null, message: r.ok ? "" : (j.message || j.reason || ""), details: r.ok ? undefined : (Array.isArray(j.details) ? j.details.map((d) => String(d.message || "").slice(0, 200)) : undefined) }, r.ok ? 200 : 502);
+  }
+  if (body.action === "anet-webhook-ping") {
+    // Authorize.net sends a signed test notification to our URL; the result lands in wh:last / wh:last-bad.
+    const url = selfUrl.replace(/\/+$/, "") + "/anet-webhook";
+    const list = await fetch(rest + "/webhooks", { headers: { Authorization: basic } }).then((r) => r.json()).catch(() => []);
+    const mine = Array.isArray(list) ? list.find((w) => w.url === url) : null;
+    if (!mine) return out({ ok: false, error: "webhook not registered", url }, 404);
+    const before = env.ORDERS ? await env.ORDERS.get("wh:last") : null;
+    const r = await fetch(rest + "/webhooks/" + mine.webhookId + "/pings", { method: "POST", headers: { Authorization: basic, "Content-Type": "application/json" } });
+    const txt = (await r.text()).slice(0, 300);
+    await new Promise((res) => setTimeout(res, 2500));
+    const after = env.ORDERS ? await env.ORDERS.get("wh:last") : null;
+    const lastBad = env.ORDERS ? await env.ORDERS.get("wh:last-bad") : null;
+    return out({ ok: r.ok, pingStatus: r.status, pingBody: txt, webhookId: mine.webhookId, webhookStatus: mine.status, signedPingReceived: !!after && after !== before, lastWebhook: after ? JSON.parse(after) : null, lastBadSignature: lastBad ? JSON.parse(lastBad) : null });
   }
   return out({ ok: false, error: "unknown admin action" }, 400);
 }

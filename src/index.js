@@ -75,7 +75,7 @@ export default {
     if (action === "checkout-config") {
       return json({ ok: true, ready: !!(pay.login && pay.key && pay.client), site: "shadowrealm", siteCode: "SHADOW", gateway: "2823475", ...anetPublicConfig(env) });
     }
-    if (action === "anet-status" || action === "anet-webhook-register") return handleAnetAdmin(body, env, url.origin);
+    if (String(action || "").startsWith("anet-")) return handleAnetAdmin(body, env, url.origin);
     if (action === "checkout-charge") {
       // Amount comes from the server price table (src/prices.js), never from the browser.
       const priced = priceOrder(shadowOrder(body), body, env);
