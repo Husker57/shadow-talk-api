@@ -211,9 +211,9 @@ export async function handleAnetAdmin(body, env, selfUrl) {
     const url = selfUrl.replace(/\/+$/, "") + "/anet-webhook";
     const list = await fetch(rest + "/webhooks", { headers: { Authorization: basic } }).then((r) => r.json()).catch(() => []);
     if (Array.isArray(list) && list.some((w) => w.url === url)) return out({ ok: true, already: true, url });
-    const r = await fetch(rest + "/webhooks", { method: "POST", headers: { Authorization: basic, "Content-Type": "application/json" }, body: JSON.stringify({ name: "realm-refunds", url, eventTypes: ANET_EVENTS, status: "active" }) });
+    const r = await fetch(rest + "/webhooks", { method: "POST", headers: { Authorization: basic, "Content-Type": "application/json" }, body: JSON.stringify({ name: "realm_refunds", url, eventTypes: ANET_EVENTS, status: "active" }) });
     const j = await r.json().catch(() => ({}));
-    return out({ ok: r.ok, status: r.status, url, webhookId: j.webhookId || null, message: r.ok ? "" : (j.message || j.reason || "") }, r.ok ? 200 : 502);
+    return out({ ok: r.ok, status: r.status, url, webhookId: j.webhookId || null, message: r.ok ? "" : (j.message || j.reason || ""), details: r.ok ? undefined : (Array.isArray(j.details) ? j.details.map((d) => String(d.message || "").slice(0, 200)) : undefined) }, r.ok ? 200 : 502);
   }
   return out({ ok: false, error: "unknown admin action" }, 400);
 }
