@@ -2,3 +2,9 @@ name = "shadow-talk-api"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
 workers_dev = true
+
+# --- Paid orders and plan codes (src/anet.js recordPaid, src/plan.js hasPlan) ---
+# plan:<CODE>, txn:<transId>, order:<invoice>, email:<email>. Created 2026-11-18.
+[[kv_namespaces]]
+binding = "ORDERS"
+id = "5ce0468f9db94ba283d15f5adc6bbee2"

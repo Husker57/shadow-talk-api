@@ -1,6 +1,7 @@
 import { authnetEnv, chargeCard, shadowOrder } from "./charge.js";
 import { priceOrder } from "./prices.js";
 import { affFields, afterCharge } from "./affiliate.js";
+import { anetPublicConfig, recordPaid, handleAnetWebhook, handleAnetAdmin } from "./anet.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -53,12 +54,15 @@ function clipNotes(text) {
 export default {
   async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+    const url = new URL(request.url);
+    // Authorize.net refund/void webhook (signature-verified in src/anet.js).
+    if (request.method === "POST" && url.pathname === "/anet-webhook") return handleAnetWebhook(request, env);
     const db = env.DB || env.shadow_realm;
     const readyDb = db && typeof db.prepare === "function" ? db : null;
     if (readyDb) await ensureDb(readyDb);
     const pay = authnetEnv(env);
     if (request.method === "GET") {
-      return json({ ok: true, service: "shadow-talk-api", v: 3, affiliates: !!env.AFF_SIGNING_SECRET, site: "shadowrealm", siteCode: "SHADOW", gateway: "2823475", hasDb: !!readyDb, hasLiveKey: !!liveKey(env), pay: { ready: !!(pay.login && pay.key), client: !!pay.client }, characters: CHARACTERS });
+      return json({ ok: true, service: "shadow-talk-api", v: 4, affiliates: !!env.AFF_SIGNING_SECRET, orders: !!env.ORDERS, site: "shadowrealm", siteCode: "SHADOW", gateway: "2823475", hasDb: !!readyDb, hasLiveKey: !!liveKey(env), pay: { ready: !!(pay.login && pay.key), client: !!pay.client }, characters: CHARACTERS });
     }
     if (request.method !== "POST") return json({ error: "POST JSON" }, 405);
     let body = {};
@@ -69,8 +73,9 @@ export default {
     const key = liveKey(env);
 
     if (action === "checkout-config") {
-      return json({ ok: true, ready: !!(pay.login && pay.key && pay.client), site: "shadowrealm", siteCode: "SHADOW", gateway: "2823475" });
+      return json({ ok: true, ready: !!(pay.login && pay.key && pay.client), site: "shadowrealm", siteCode: "SHADOW", gateway: "2823475", ...anetPublicConfig(env) });
     }
+    if (action === "anet-status" || action === "anet-webhook-register") return handleAnetAdmin(body, env, url.origin);
     if (action === "checkout-charge") {
       // Amount comes from the server price table (src/prices.js), never from the browser.
       const priced = priceOrder(shadowOrder(body), body, env);
@@ -78,7 +83,12 @@ export default {
       const order = Object.assign(priced.order, affFields(body));
       const paid = await chargeCard(env, order, body);
       // Affiliate conversion (src/affiliate.js); never blocks or fails the charge.
-      if (paid.ok) afterCharge(env, ctx, "shadowrealm.co", order, body);
+      if (paid.ok) {
+        // Plan code (ORDERS KV plan:<CODE>, txn:<transId>; site, plan, invoice, ref/rclid). src/anet.js
+        paid.planCode = await recordPaid(env, "shadowrealm.co", "SHADOW", order, paid);
+        paid.plan = order.sku;
+        afterCharge(env, ctx, "shadowrealm.co", order, body);
+      }
       return json(paid, paid.ok ? 200 : 402);
     }
     if (action === "signup") {
